@@ -12,7 +12,6 @@
         android:orientation="vertical"
         android:gravity="center_horizontal">
 
-        <!-- ── Cabecera ─────────────────────────────────────── -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
@@ -31,7 +30,6 @@
             android:textColor="@color/text_secondary"
             android:layout_marginBottom="24dp" />
 
-        <!-- ── Estado ──────────────────────────────────────── -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -44,9 +42,8 @@
                 android:layout_width="16dp"
                 android:layout_height="16dp"
                 android:src="@drawable/ic_circle"
-                android:colorFilter="@color/inactive_gray"
                 app:tint="@color/inactive_gray"
-                android:layout_marginEnd="8dp" /> 
+                android:layout_marginEnd="8dp" />
 
             <TextView
                 android:id="@+id/tvStatus"
@@ -57,7 +54,6 @@
                 android:textSize="15sp" />
         </LinearLayout>
 
-        <!-- ── Botón principal ─────────────────────────────── -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnToggle"
             android:layout_width="match_parent"
@@ -68,7 +64,6 @@
             android:backgroundTint="@color/start_blue"
             android:layout_marginBottom="28dp" />
 
-        <!-- ── Tarjeta: Amplificación ──────────────────────── -->
         <androidx.cardview.widget.CardView
             xmlns:card="http://schemas.android.com/apk/res-auto"
             android:layout_width="match_parent"
@@ -127,7 +122,6 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- ── Tarjeta: EQ 3 bandas ────────────────────────── -->
         <androidx.cardview.widget.CardView
             xmlns:card="http://schemas.android.com/apk/res-auto"
             android:layout_width="match_parent"
@@ -152,7 +146,6 @@
                     android:textStyle="bold"
                     android:layout_marginBottom="16dp" />
 
-                <!-- Bajos -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -184,7 +177,6 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Medios -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -216,7 +208,6 @@
                         android:textStyle="bold" />
                 </LinearLayout>
 
-                <!-- Agudos -->
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -257,7 +248,6 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- ── Tarjeta: Límiter ────────────────────────────── -->
         <androidx.cardview.widget.CardView
             xmlns:card="http://schemas.android.com/apk/res-auto"
             android:layout_width="match_parent"
@@ -304,7 +294,6 @@
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
-        <!-- Nota de uso -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
