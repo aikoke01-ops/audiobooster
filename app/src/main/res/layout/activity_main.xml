@@ -1,0 +1,317 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/bg_dark"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="center_horizontal">
+
+        <!-- ── Cabecera ─────────────────────────────────────── -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🎧 AudioBooster"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:textColor="@color/accent"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Amplificación y EQ del sistema en tiempo real"
+            android:textSize="13sp"
+            android:textColor="@color/text_secondary"
+            android:layout_marginBottom="24dp" />
+
+        <!-- ── Estado ──────────────────────────────────────── -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="20dp">
+
+            <ImageView
+                android:id="@+id/statusDot"
+                android:layout_width="16dp"
+                android:layout_height="16dp"
+                android:src="@drawable/ic_circle"
+                android:colorFilter="@color/inactive_gray"
+                app:tint="@color/inactive_gray"
+                android:layout_marginEnd="8dp" />
+
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Estado: Inactivo"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp" />
+        </LinearLayout>
+
+        <!-- ── Botón principal ─────────────────────────────── -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnToggle"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:text="▶ Iniciar captura"
+            android:textSize="17sp"
+            android:textStyle="bold"
+            android:backgroundTint="@color/start_blue"
+            android:layout_marginBottom="28dp" />
+
+        <!-- ── Tarjeta: Amplificación ──────────────────────── -->
+        <androidx.cardview.widget.CardView
+            xmlns:card="http://schemas.android.com/apk/res-auto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            card:cardBackgroundColor="@color/card_bg"
+            card:cardCornerRadius="16dp"
+            card:cardElevation="6dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔊 Amplificación"
+                    android:textColor="@color/accent"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="12dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <SeekBar
+                        android:id="@+id/seekGain"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:thumbTint="@color/accent"
+                        android:progressTint="@color/accent" />
+
+                    <TextView
+                        android:id="@+id/tvGainValue"
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:text="100%"
+                        android:textColor="@color/accent"
+                        android:textStyle="bold"
+                        android:gravity="end"
+                        android:textSize="15sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="0%                                                   400%"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- ── Tarjeta: EQ 3 bandas ────────────────────────── -->
+        <androidx.cardview.widget.CardView
+            xmlns:card="http://schemas.android.com/apk/res-auto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            card:cardBackgroundColor="@color/card_bg"
+            card:cardCornerRadius="16dp"
+            card:cardElevation="6dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🎛 Ecualizador (3 bandas)"
+                    android:textColor="@color/accent"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="16dp" />
+
+                <!-- Bajos -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Bajos  (250 Hz)"
+                    android:textColor="@color/text_primary"
+                    android:textSize="13sp"
+                    android:layout_marginBottom="4dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
+                    <SeekBar
+                        android:id="@+id/seekBass"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:thumbTint="@color/bass_color"
+                        android:progressTint="@color/bass_color" />
+                    <TextView
+                        android:id="@+id/tvBassValue"
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:text="0 dB"
+                        android:textColor="@color/bass_color"
+                        android:gravity="end"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Medios -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Medios (1 kHz)"
+                    android:textColor="@color/text_primary"
+                    android:textSize="13sp"
+                    android:layout_marginBottom="4dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="16dp">
+                    <SeekBar
+                        android:id="@+id/seekMid"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:thumbTint="@color/mid_color"
+                        android:progressTint="@color/mid_color" />
+                    <TextView
+                        android:id="@+id/tvMidValue"
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:text="0 dB"
+                        android:textColor="@color/mid_color"
+                        android:gravity="end"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Agudos -->
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Agudos (6 kHz)"
+                    android:textColor="@color/text_primary"
+                    android:textSize="13sp"
+                    android:layout_marginBottom="4dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+                    <SeekBar
+                        android:id="@+id/seekTreble"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:thumbTint="@color/treble_color"
+                        android:progressTint="@color/treble_color" />
+                    <TextView
+                        android:id="@+id/tvTrebleValue"
+                        android:layout_width="60dp"
+                        android:layout_height="wrap_content"
+                        android:text="0 dB"
+                        android:textColor="@color/treble_color"
+                        android:gravity="end"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="-12 dB                                          +12 dB"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp"
+                    android:layout_marginTop="4dp" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- ── Tarjeta: Límiter ────────────────────────────── -->
+        <androidx.cardview.widget.CardView
+            xmlns:card="http://schemas.android.com/apk/res-auto"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            card:cardBackgroundColor="@color/card_bg"
+            card:cardCornerRadius="16dp"
+            card:cardElevation="6dp"
+            android:layout_marginBottom="24dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="16dp">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🛡 Límiter (soft-clip)"
+                        android:textColor="@color/accent"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Protege contra distorsión al amplificar mucho"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switchLimiter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- Nota de uso -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⚠ Requiere Android 10+. Al pulsar Iniciar, el sistema pedirá permiso de captura de pantalla/audio. El audio procesado se reproduce en tiempo real sobre tus altavoces o auriculares actuales."
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp"
+            android:layout_marginBottom="32dp" />
+
+    </LinearLayout>
+</ScrollView>
