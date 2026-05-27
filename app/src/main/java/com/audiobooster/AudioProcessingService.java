@@ -8,7 +8,6 @@ import android.app.Service;
 import android.content.Intent;
 import android.media.AudioAttributes;
 import android.media.AudioDeviceInfo;
-import android.media.AudioFocusRequest;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioPlaybackCaptureConfiguration;
@@ -55,8 +54,6 @@ public class AudioProcessingService extends Service {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread processingThread;
     private MediaProjection mediaProjection;
-    private AudioManager audioManager;
-    private AudioFocusRequest focusRequest;
 
     // ── Parámetros de procesado (volátiles, seguros entre hilos) ──────────────
     private volatile float gain         = 1.0f;
@@ -92,7 +89,6 @@ public class AudioProcessingService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         createNotificationChannel();
     }
 
@@ -114,7 +110,6 @@ public class AudioProcessingService extends Service {
         }, null);
 
         // Solicitar foco de audio: silencia otras apps y toma control
-        requestAudioFocus();
 
         startProcessing();
         return START_NOT_STICKY;
@@ -123,7 +118,6 @@ public class AudioProcessingService extends Service {
     @Override
     public void onDestroy() {
         running.set(false);
-        abandonAudioFocus();
         if (mediaProjection != null) {
             mediaProjection.stop();
             mediaProjection = null;
@@ -135,28 +129,17 @@ public class AudioProcessingService extends Service {
     //  Foco de audio
     // ─────────────────────────────────────────────────────────────────────────
 
-    private void requestAudioFocus() {
         AudioAttributes attrs = new AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_MEDIA)
             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             .build();
 
-        focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(attrs)
             .setAcceptsDelayedFocusGain(false)
-            .setOnAudioFocusChangeListener(focusChange -> {
-                if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
-                    stopSelf();
-                }
-            })
             .build();
 
-        audioManager.requestAudioFocus(focusRequest);
     }
 
-    private void abandonAudioFocus() {
-        if (focusRequest != null) {
-            audioManager.abandonAudioFocusRequest(focusRequest);
         }
     }
 
