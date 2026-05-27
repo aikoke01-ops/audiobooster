@@ -7,7 +7,10 @@ import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
 import android.media.AudioAttributes;
+import android.media.AudioDeviceInfo;
+import android.media.AudioFocusRequest;
 import android.media.AudioFormat;
+import android.media.AudioManager;
 import android.media.AudioPlaybackCaptureConfiguration;
 import android.media.AudioRecord;
 import android.media.AudioTrack;
@@ -22,15 +25,15 @@ import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
 
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * Servicio en primer plano que:
- *  1. Captura el audio del sistema usando MediaProjection (Android 10+)
- *  2. Aplica amplificación de ganancia
- *  3. Aplica un EQ de 3 bandas (bajos / medios / agudos) con filtros biquad
- *  4. Aplica un límiter soft-clip para proteger los altavoces
- *  5. Reproduce el audio procesado por AudioTrack en tiempo real
+ * Servicio rediseñado para Opción B:
+ *  1. Solicita foco de audio exclusivo (silencia otras apps)
+ *  2. Captura el audio del sistema con MediaProjection
+ *  3. Procesa: ganancia + EQ biquad 3 bandas + soft-clip limiter
+ *  4. Reproduce el audio procesado por auriculares/bluetooth (AudioTrack)
+ *
+ * Requiere auriculares conectados (jack 3.5mm o Bluetooth).
  */
 @RequiresApi(api = Build.VERSION_CODES.Q)
 public class AudioProcessingService extends Service {
@@ -39,29 +42,30 @@ public class AudioProcessingService extends Service {
     private static final String CHANNEL_ID = "audio_booster_channel";
     private static final int NOTIF_ID = 1;
 
-    public static final String EXTRA_RESULT_CODE   = "result_code";
+    public static final String EXTRA_RESULT_CODE    = "result_code";
     public static final String EXTRA_PROJECTION_DATA = "projection_data";
 
-    // ── Parámetros de audio ───────────────────────────────────────────────────
-    private static final int SAMPLE_RATE   = 44100;
-    private static final int CHANNEL_IN    = AudioFormat.CHANNEL_IN_STEREO;
-    private static final int CHANNEL_OUT   = AudioFormat.CHANNEL_OUT_STEREO;
-    private static final int ENCODING      = AudioFormat.ENCODING_PCM_FLOAT;
+    // ── Audio config ──────────────────────────────────────────────────────────
+    private static final int SAMPLE_RATE = 44100;
+    private static final int CHANNEL_IN  = AudioFormat.CHANNEL_IN_STEREO;
+    private static final int CHANNEL_OUT = AudioFormat.CHANNEL_OUT_STEREO;
+    private static final int ENCODING    = AudioFormat.ENCODING_PCM_FLOAT;
 
     // ── Estado ────────────────────────────────────────────────────────────────
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread processingThread;
     private MediaProjection mediaProjection;
+    private AudioManager audioManager;
+    private AudioFocusRequest focusRequest;
 
-    // ── Parámetros controlables desde la UI (thread-safe) ────────────────────
-    private volatile float gain = 1.0f;           // 1.0 = 100 %
-    private volatile float bassDb = 0f;
-    private volatile float midDb  = 0f;
-    private volatile float trebleDb = 0f;
+    // ── Parámetros de procesado (volátiles, seguros entre hilos) ──────────────
+    private volatile float gain         = 1.0f;
+    private volatile float bassDb       = 0f;
+    private volatile float midDb        = 0f;
+    private volatile float trebleDb     = 0f;
     private volatile boolean limiterEnabled = true;
 
-    // ── Filtros biquad (un par L/R para cada banda) ───────────────────────────
-    // Cada filtro se recalcula cuando cambian los dB
+    // ── Filtros biquad ────────────────────────────────────────────────────────
     private final BiquadFilter bassL   = new BiquadFilter();
     private final BiquadFilter bassR   = new BiquadFilter();
     private final BiquadFilter midL    = new BiquadFilter();
@@ -69,7 +73,6 @@ public class AudioProcessingService extends Service {
     private final BiquadFilter trebleL = new BiquadFilter();
     private final BiquadFilter trebleR = new BiquadFilter();
 
-    // Flags para recalcular filtros
     private volatile boolean bassChanged   = true;
     private volatile boolean midChanged    = true;
     private volatile boolean trebleChanged = true;
@@ -80,16 +83,16 @@ public class AudioProcessingService extends Service {
         public AudioProcessingService getService() { return AudioProcessingService.this; }
     }
 
-    @Override
-    public IBinder onBind(Intent intent) { return binder; }
+    @Override public IBinder onBind(Intent intent) { return binder; }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Ciclo de vida del servicio
+    //  Ciclo de vida
     // ─────────────────────────────────────────────────────────────────────────
 
     @Override
     public void onCreate() {
         super.onCreate();
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         createNotificationChannel();
     }
 
@@ -100,18 +103,18 @@ public class AudioProcessingService extends Service {
         int resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, -1);
         Intent projData = intent.getParcelableExtra(EXTRA_PROJECTION_DATA);
 
-        // Iniciar notificación de primer plano
         startForeground(NOTIF_ID, buildNotification());
 
         // Obtener MediaProjection
         MediaProjectionManager mpm =
             (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         mediaProjection = mpm.getMediaProjection(resultCode, projData);
-
-        // Registrar callback para cuando se revoque la proyección
         mediaProjection.registerCallback(new MediaProjection.Callback() {
             @Override public void onStop() { stopSelf(); }
         }, null);
+
+        // Solicitar foco de audio: silencia otras apps y toma control
+        requestAudioFocus();
 
         startProcessing();
         return START_NOT_STICKY;
@@ -120,6 +123,7 @@ public class AudioProcessingService extends Service {
     @Override
     public void onDestroy() {
         running.set(false);
+        abandonAudioFocus();
         if (mediaProjection != null) {
             mediaProjection.stop();
             mediaProjection = null;
@@ -128,17 +132,46 @@ public class AudioProcessingService extends Service {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    //  Foco de audio
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void requestAudioFocus() {
+        AudioAttributes attrs = new AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build();
+
+        focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+            .setAudioAttributes(attrs)
+            .setAcceptsDelayedFocusGain(false)
+            .setOnAudioFocusChangeListener(focusChange -> {
+                if (focusChange == AudioManager.AUDIOFOCUS_LOSS) {
+                    stopSelf();
+                }
+            })
+            .build();
+
+        audioManager.requestAudioFocus(focusRequest);
+    }
+
+    private void abandonAudioFocus() {
+        if (focusRequest != null) {
+            audioManager.abandonAudioFocusRequest(focusRequest);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
     //  API pública para la UI
     // ─────────────────────────────────────────────────────────────────────────
 
-    public void setGain(float g)            { gain = Math.max(0f, Math.min(4f, g)); }
-    public void setBassDb(int db)           { bassDb   = db; bassChanged   = true; }
-    public void setMidDb(int db)            { midDb    = db; midChanged    = true; }
-    public void setTrebleDb(int db)         { trebleDb = db; trebleChanged = true; }
-    public void setLimiterEnabled(boolean e){ limiterEnabled = e; }
+    public void setGain(float g)             { gain = Math.max(0f, Math.min(4f, g)); }
+    public void setBassDb(int db)            { bassDb   = db; bassChanged   = true; }
+    public void setMidDb(int db)             { midDb    = db; midChanged    = true; }
+    public void setTrebleDb(int db)          { trebleDb = db; trebleChanged = true; }
+    public void setLimiterEnabled(boolean e) { limiterEnabled = e; }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  Motor de procesado de audio
+    //  Motor de audio
     // ─────────────────────────────────────────────────────────────────────────
 
     private void startProcessing() {
@@ -150,9 +183,9 @@ public class AudioProcessingService extends Service {
 
     private void audioLoop() {
         int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_IN, ENCODING);
-        int bufSize = Math.max(minBuf, 4096) * 2;  // doble para reducir glitches
+        int bufSize = Math.max(minBuf, 4096) * 2;
 
-        // ── AudioPlaybackCapture config ───────────────────────────────────────
+        // ── Configurar captura ────────────────────────────────────────────────
         AudioPlaybackCaptureConfiguration captureConfig =
             new AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
@@ -160,32 +193,33 @@ public class AudioProcessingService extends Service {
                 .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
                 .build();
 
-        AudioFormat captureFormat = new AudioFormat.Builder()
-            .setSampleRate(SAMPLE_RATE)
-            .setEncoding(ENCODING)
-            .setChannelMask(CHANNEL_IN)
-            .build();
-
         AudioRecord recorder;
         try {
             recorder = new AudioRecord.Builder()
-                .setAudioFormat(captureFormat)
+                .setAudioFormat(new AudioFormat.Builder()
+                    .setSampleRate(SAMPLE_RATE)
+                    .setEncoding(ENCODING)
+                    .setChannelMask(CHANNEL_IN)
+                    .build())
                 .setBufferSizeInBytes(bufSize)
                 .setAudioPlaybackCaptureConfig(captureConfig)
                 .build();
         } catch (Exception e) {
-            Log.e(TAG, "No se pudo crear AudioRecord", e);
+            Log.e(TAG, "Error creando AudioRecord", e);
             stopSelf();
             return;
         }
 
-        // ── AudioTrack para reproducir audio procesado ─────────────────────
+        // ── Configurar reproducción → auriculares/bluetooth ──────────────────
         int minTrack = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, ENCODING);
+
+        AudioAttributes playbackAttrs = new AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_MEDIA)
+            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+            .build();
+
         AudioTrack track = new AudioTrack.Builder()
-            .setAudioAttributes(new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build())
+            .setAudioAttributes(playbackAttrs)
             .setAudioFormat(new AudioFormat.Builder()
                 .setSampleRate(SAMPLE_RATE)
                 .setEncoding(ENCODING)
@@ -195,43 +229,42 @@ public class AudioProcessingService extends Service {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build();
 
+        // Intentar dirigir la salida a auriculares si están conectados
+        routeToHeadphones(track);
+
         recorder.startRecording();
         track.play();
 
-        float[] buffer = new float[bufSize / 4];  // Float = 4 bytes
-
-        // Calcular filtros iniciales
+        float[] buffer = new float[bufSize / 4];
         recalcFiltersIfNeeded();
 
         while (running.get()) {
             int read = recorder.read(buffer, 0, buffer.length, AudioRecord.READ_BLOCKING);
             if (read <= 0) continue;
 
-            // Recalcular filtros si cambiaron los parámetros de EQ
             recalcFiltersIfNeeded();
 
-            // El buffer llega entrelazado: L, R, L, R, ...
             for (int i = 0; i < read - 1; i += 2) {
                 float l = buffer[i];
                 float r = buffer[i + 1];
 
-                // 1. Amplificación de ganancia
+                // 1. Ganancia
                 l *= gain;
                 r *= gain;
 
-                // 2. Filtro de bajos (low shelf)
+                // 2. EQ bajos
                 l = bassL.process(l);
                 r = bassR.process(r);
 
-                // 3. Filtro de medios (peak/bell)
+                // 3. EQ medios
                 l = midL.process(l);
                 r = midR.process(r);
 
-                // 4. Filtro de agudos (high shelf)
+                // 4. EQ agudos
                 l = trebleL.process(l);
                 r = trebleR.process(r);
 
-                // 5. Límiter soft-clip
+                // 5. Limiter
                 if (limiterEnabled) {
                     l = softClip(l);
                     r = softClip(r);
@@ -251,18 +284,43 @@ public class AudioProcessingService extends Service {
     }
 
     /**
-     * Soft-clip suave tipo tanh para evitar distorsión dura.
-     * Limita la señal a [-1, 1] de forma gradual.
+     * Intenta redirigir la salida del AudioTrack a auriculares (jack o BT).
+     * Si no hay auriculares conectados, usa el altavoz por defecto.
      */
-    private static float softClip(float x) {
-        if (x > 1f)  return 1f  - (float) Math.exp(-(x - 1f));
-        if (x < -1f) return -1f + (float) Math.exp((x + 1f));
-        return x;
+    private void routeToHeadphones(AudioTrack track) {
+        AudioDeviceInfo[] devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+        AudioDeviceInfo preferred = null;
+
+        // Prioridad: BT A2DP > BT SCO > Jack wired > altavoz
+        int bestScore = -1;
+        for (AudioDeviceInfo dev : devices) {
+            int score = 0;
+            switch (dev.getType()) {
+                case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP: score = 4; break;
+                case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:  score = 3; break;
+                case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
+                case AudioDeviceInfo.TYPE_WIRED_HEADSET:  score = 2; break;
+                case AudioDeviceInfo.TYPE_USB_HEADSET:    score = 2; break;
+                case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: score = 1; break;
+            }
+            if (score > bestScore) {
+                bestScore = score;
+                preferred = dev;
+            }
+        }
+
+        if (preferred != null) {
+            track.setPreferredDevice(preferred);
+            Log.d(TAG, "Salida de audio: " + preferred.getProductName()
+                + " (tipo " + preferred.getType() + ")");
+        }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Filtros Biquad
-    // ─────────────────────────────────────────────────────────────────────────
+    private static float softClip(float x) {
+        if (x >  1f) return  1f - (float) Math.exp(-(x - 1f));
+        if (x < -1f) return -1f + (float) Math.exp( (x + 1f));
+        return x;
+    }
 
     private void recalcFiltersIfNeeded() {
         if (bassChanged) {
@@ -296,21 +354,14 @@ public class AudioProcessingService extends Service {
     }
 
     private Notification buildNotification() {
-        Intent stopIntent = new Intent(this, AudioProcessingService.class);
-        stopIntent.setAction("STOP");
-        PendingIntent stopPi = PendingIntent.getService(
-            this, 0, stopIntent, PendingIntent.FLAG_IMMUTABLE);
-
-        Intent openUi = new Intent(this, MainActivity.class);
-        PendingIntent openPi = PendingIntent.getActivity(
-            this, 0, openUi, PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent openPi = PendingIntent.getActivity(this, 0,
+            new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
 
         return new NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("AudioBooster activo")
-            .setContentText("Amplificación y EQ en tiempo real")
+            .setContentText("EQ en tiempo real → auriculares")
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(openPi)
-            .addAction(android.R.drawable.ic_media_pause, "Detener", stopPi)
             .setOngoing(true)
             .build();
     }
