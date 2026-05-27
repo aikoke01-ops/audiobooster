@@ -25,15 +25,6 @@ import androidx.core.app.NotificationCompat;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * Servicio rediseñado para Opción B:
- *  1. Solicita foco de audio exclusivo (silencia otras apps)
- *  2. Captura el audio del sistema con MediaProjection
- *  3. Procesa: ganancia + EQ biquad 3 bandas + soft-clip limiter
- *  4. Reproduce el audio procesado por auriculares/bluetooth (AudioTrack)
- *
- * Requiere auriculares conectados (jack 3.5mm o Bluetooth).
- */
 @RequiresApi(api = Build.VERSION_CODES.Q)
 public class AudioProcessingService extends Service {
 
@@ -41,28 +32,25 @@ public class AudioProcessingService extends Service {
     private static final String CHANNEL_ID = "audio_booster_channel";
     private static final int NOTIF_ID = 1;
 
-    public static final String EXTRA_RESULT_CODE    = "result_code";
+    public static final String EXTRA_RESULT_CODE     = "result_code";
     public static final String EXTRA_PROJECTION_DATA = "projection_data";
 
-    // ── Audio config ──────────────────────────────────────────────────────────
     private static final int SAMPLE_RATE = 44100;
     private static final int CHANNEL_IN  = AudioFormat.CHANNEL_IN_STEREO;
     private static final int CHANNEL_OUT = AudioFormat.CHANNEL_OUT_STEREO;
     private static final int ENCODING    = AudioFormat.ENCODING_PCM_FLOAT;
 
-    // ── Estado ────────────────────────────────────────────────────────────────
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread processingThread;
     private MediaProjection mediaProjection;
+    private AudioManager audioManager;
 
-    // ── Parámetros de procesado (volátiles, seguros entre hilos) ──────────────
-    private volatile float gain         = 1.0f;
-    private volatile float bassDb       = 0f;
-    private volatile float midDb        = 0f;
-    private volatile float trebleDb     = 0f;
+    private volatile float gain          = 1.0f;
+    private volatile float bassDb        = 0f;
+    private volatile float midDb         = 0f;
+    private volatile float trebleDb      = 0f;
     private volatile boolean limiterEnabled = true;
 
-    // ── Filtros biquad ────────────────────────────────────────────────────────
     private final BiquadFilter bassL   = new BiquadFilter();
     private final BiquadFilter bassR   = new BiquadFilter();
     private final BiquadFilter midL    = new BiquadFilter();
@@ -74,21 +62,19 @@ public class AudioProcessingService extends Service {
     private volatile boolean midChanged    = true;
     private volatile boolean trebleChanged = true;
 
-    // ── Binder ────────────────────────────────────────────────────────────────
     private final IBinder binder = new LocalBinder();
+
     public class LocalBinder extends Binder {
         public AudioProcessingService getService() { return AudioProcessingService.this; }
     }
 
-    @Override public IBinder onBind(Intent intent) { return binder; }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Ciclo de vida
-    // ─────────────────────────────────────────────────────────────────────────
+    @Override
+    public IBinder onBind(Intent intent) { return binder; }
 
     @Override
     public void onCreate() {
         super.onCreate();
+        audioManager = (AudioManager) getSystemService(AUDIO_SERVICE);
         createNotificationChannel();
     }
 
@@ -101,15 +87,12 @@ public class AudioProcessingService extends Service {
 
         startForeground(NOTIF_ID, buildNotification());
 
-        // Obtener MediaProjection
         MediaProjectionManager mpm =
             (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
         mediaProjection = mpm.getMediaProjection(resultCode, projData);
         mediaProjection.registerCallback(new MediaProjection.Callback() {
             @Override public void onStop() { stopSelf(); }
         }, null);
-
-        // Solicitar foco de audio: silencia otras apps y toma control
 
         startProcessing();
         return START_NOT_STICKY;
@@ -125,37 +108,11 @@ public class AudioProcessingService extends Service {
         super.onDestroy();
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Foco de audio
-    // ─────────────────────────────────────────────────────────────────────────
-
-        AudioAttributes attrs = new AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            .build();
-
-            .setAudioAttributes(attrs)
-            .setAcceptsDelayedFocusGain(false)
-            .build();
-
-    }
-
-        }
-    }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  API pública para la UI
-    // ─────────────────────────────────────────────────────────────────────────
-
     public void setGain(float g)             { gain = Math.max(0f, Math.min(4f, g)); }
     public void setBassDb(int db)            { bassDb   = db; bassChanged   = true; }
     public void setMidDb(int db)             { midDb    = db; midChanged    = true; }
     public void setTrebleDb(int db)          { trebleDb = db; trebleChanged = true; }
     public void setLimiterEnabled(boolean e) { limiterEnabled = e; }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Motor de audio
-    // ─────────────────────────────────────────────────────────────────────────
 
     private void startProcessing() {
         running.set(true);
@@ -168,7 +125,6 @@ public class AudioProcessingService extends Service {
         int minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_IN, ENCODING);
         int bufSize = Math.max(minBuf, 4096) * 2;
 
-        // ── Configurar captura ────────────────────────────────────────────────
         AudioPlaybackCaptureConfiguration captureConfig =
             new AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
                 .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
@@ -193,16 +149,13 @@ public class AudioProcessingService extends Service {
             return;
         }
 
-        // ── Configurar reproducción → auriculares/bluetooth ──────────────────
         int minTrack = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_OUT, ENCODING);
 
-        AudioAttributes playbackAttrs = new AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_MEDIA)
-            .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
-            .build();
-
         AudioTrack track = new AudioTrack.Builder()
-            .setAudioAttributes(playbackAttrs)
+            .setAudioAttributes(new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build())
             .setAudioFormat(new AudioFormat.Builder()
                 .setSampleRate(SAMPLE_RATE)
                 .setEncoding(ENCODING)
@@ -212,7 +165,6 @@ public class AudioProcessingService extends Service {
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build();
 
-        // Intentar dirigir la salida a auriculares si están conectados
         routeToHeadphones(track);
 
         recorder.startRecording();
@@ -231,23 +183,18 @@ public class AudioProcessingService extends Service {
                 float l = buffer[i];
                 float r = buffer[i + 1];
 
-                // 1. Ganancia
                 l *= gain;
                 r *= gain;
 
-                // 2. EQ bajos
                 l = bassL.process(l);
                 r = bassR.process(r);
 
-                // 3. EQ medios
                 l = midL.process(l);
                 r = midR.process(r);
 
-                // 4. EQ agudos
                 l = trebleL.process(l);
                 r = trebleR.process(r);
 
-                // 5. Limiter
                 if (limiterEnabled) {
                     l = softClip(l);
                     r = softClip(r);
@@ -266,25 +213,20 @@ public class AudioProcessingService extends Service {
         track.release();
     }
 
-    /**
-     * Intenta redirigir la salida del AudioTrack a auriculares (jack o BT).
-     * Si no hay auriculares conectados, usa el altavoz por defecto.
-     */
     private void routeToHeadphones(AudioTrack track) {
         AudioDeviceInfo[] devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
         AudioDeviceInfo preferred = null;
-
-        // Prioridad: BT A2DP > BT SCO > Jack wired > altavoz
         int bestScore = -1;
+
         for (AudioDeviceInfo dev : devices) {
             int score = 0;
             switch (dev.getType()) {
-                case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP: score = 4; break;
-                case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:  score = 3; break;
+                case AudioDeviceInfo.TYPE_BLUETOOTH_A2DP:   score = 4; break;
+                case AudioDeviceInfo.TYPE_BLUETOOTH_SCO:    score = 3; break;
                 case AudioDeviceInfo.TYPE_WIRED_HEADPHONES:
-                case AudioDeviceInfo.TYPE_WIRED_HEADSET:  score = 2; break;
-                case AudioDeviceInfo.TYPE_USB_HEADSET:    score = 2; break;
-                case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER: score = 1; break;
+                case AudioDeviceInfo.TYPE_WIRED_HEADSET:    score = 2; break;
+                case AudioDeviceInfo.TYPE_USB_HEADSET:      score = 2; break;
+                case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER:  score = 1; break;
             }
             if (score > bestScore) {
                 bestScore = score;
@@ -294,8 +236,7 @@ public class AudioProcessingService extends Service {
 
         if (preferred != null) {
             track.setPreferredDevice(preferred);
-            Log.d(TAG, "Salida de audio: " + preferred.getProductName()
-                + " (tipo " + preferred.getType() + ")");
+            Log.d(TAG, "Salida: " + preferred.getProductName() + " tipo=" + preferred.getType());
         }
     }
 
@@ -322,10 +263,6 @@ public class AudioProcessingService extends Service {
             trebleChanged = false;
         }
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    //  Notificación
-    // ─────────────────────────────────────────────────────────────────────────
 
     private void createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
